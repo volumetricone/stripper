@@ -1,20 +1,16 @@
-/* GPIO Example
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless requiwarm by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
-*/
-
 #include <string.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_log.h>
+#include <esp_event.h>
 #include <nvs_flash.h>
 
 #include <esp_rmaker_core.h>
 #include <esp_rmaker_standard_types.h>
+#include <esp_rmaker_standard_params.h>
+#include <esp_rmaker_standard_devices.h>
+#include <esp_rmaker_ota.h>
+#include <esp_rmaker_schedule.h>
 
 #include <app_wifi.h>
 
@@ -31,6 +27,54 @@ static esp_err_t write_cb(const esp_rmaker_device_t *device, const esp_rmaker_pa
         esp_rmaker_param_update_and_report(param, val);
     }
     return ESP_OK;
+}
+
+/* Event handler for catching RainMaker events */
+static void event_handler(void *arg, esp_event_base_t event_base,
+                          int event_id, void *event_data)
+{
+    if (event_base == RMAKER_EVENT)
+    {
+        switch (event_id)
+        {
+        case RMAKER_EVENT_INIT_DONE:
+            ESP_LOGI(TAG, "RainMaker Initialised.");
+            break;
+        case RMAKER_EVENT_CLAIM_STARTED:
+            ESP_LOGI(TAG, "RainMaker Claim Started.");
+            break;
+        case RMAKER_EVENT_CLAIM_SUCCESSFUL:
+            ESP_LOGI(TAG, "RainMaker Claim Successful.");
+            break;
+        case RMAKER_EVENT_CLAIM_FAILED:
+            ESP_LOGI(TAG, "RainMaker Claim Failed.");
+            break;
+        case RMAKER_EVENT_REBOOT:
+            ESP_LOGI(TAG, "Rebooting in %d seconds.", *((uint8_t *)event_data));
+            break;
+        case RMAKER_EVENT_WIFI_RESET:
+            ESP_LOGI(TAG, "Wi-Fi credentials reset.");
+            break;
+        case RMAKER_EVENT_FACTORY_RESET:
+            ESP_LOGI(TAG, "Node reset to factory defaults.");
+            break;
+        case RMAKER_EVENT_MQTT_CONNECTED:
+            ESP_LOGI(TAG, "MQTT Connected.");
+            break;
+        case RMAKER_EVENT_MQTT_DISCONNECTED:
+            ESP_LOGI(TAG, "MQTT Disconnected.");
+            break;
+        case RMAKER_EVENT_MQTT_PUBLISHED:
+            ESP_LOGI(TAG, "MQTT Published. Msg id: %d.", *((int *)event_data));
+            break;
+        default:
+            ESP_LOGW(TAG, "Unhandled RainMaker Event: %d", event_id);
+        }
+    }
+    else
+    {
+        ESP_LOGW(TAG, "Invalid event received!");
+    }
 }
 
 void app_main()
@@ -53,13 +97,16 @@ void app_main()
      */
     app_wifi_init();
 
+    /* Register an event handler to catch RainMaker events */
+    ESP_ERROR_CHECK(esp_event_handler_register(RMAKER_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));
+
     /* Initialize the ESP RainMaker Agent.
      * Note that this should be called after app_wifi_init() but before app_wifi_start()
      * */
     esp_rmaker_config_t rainmaker_cfg = {
         .enable_time_sync = false,
     };
-    esp_rmaker_node_t *node = esp_rmaker_node_init(&rainmaker_cfg, "Volumetric One LED stripe controller", "VOLED2CH1");
+    esp_rmaker_node_t *node = esp_rmaker_node_init(&rainmaker_cfg, "Dual LED strip controller", "VOLED2CH1");
     if (!node)
     {
         ESP_LOGE(TAG, "Could not initialise node. Aborting!!!");
@@ -68,18 +115,25 @@ void app_main()
     }
 
     /* Create a device and add the relevant parameters to it */
-    esp_rmaker_device_t *gpio_device = esp_rmaker_device_create("ESP32-S2-Saola-1", NULL, NULL);
-    esp_rmaker_device_add_cb(gpio_device, write_cb, NULL);
+    esp_rmaker_device_t *led_strip_device = esp_rmaker_lightbulb_device_create("LED Strip", NULL, NULL);
+    esp_rmaker_device_add_cb(led_strip_device, write_cb, NULL);
 
-    esp_rmaker_param_t *warm_param = esp_rmaker_param_create("Warm", NULL, esp_rmaker_bool(false), PROP_FLAG_READ | PROP_FLAG_WRITE);
-    esp_rmaker_param_add_ui_type(warm_param, ESP_RMAKER_UI_TOGGLE);
-    esp_rmaker_device_add_param(gpio_device, warm_param);
+    esp_rmaker_param_t *brightness = esp_rmaker_brightness_param_create(ESP_RMAKER_DEF_BRIGHTNESS_NAME, DEFAULT_BRIGHTNESS);
+    esp_rmaker_device_add_param(led_strip_device, brightness);
 
-    esp_rmaker_param_t *cold_param = esp_rmaker_param_create("Cold", NULL, esp_rmaker_bool(false), PROP_FLAG_READ | PROP_FLAG_WRITE);
-    esp_rmaker_param_add_ui_type(cold_param, ESP_RMAKER_UI_TOGGLE);
-    esp_rmaker_device_add_param(gpio_device, cold_param);
+    esp_rmaker_param_t *color_temperature = esp_rmaker_cct_param_create(ESP_RMAKER_DEF_CCT_NAME, DEFAULT_CCT);
+    esp_rmaker_device_add_param(led_strip_device, color_temperature);
 
-    esp_rmaker_node_add_device(node, gpio_device);
+    esp_rmaker_node_add_device(node, led_strip_device);
+
+    /* Enable OTA */
+    esp_rmaker_ota_config_t ota_config = {
+        .server_cert = ESP_RMAKER_OTA_DEFAULT_SERVER_CERT,
+    };
+    esp_rmaker_ota_enable(&ota_config, OTA_USING_PARAMS);
+
+    /* Enable scheduler */
+    esp_err_t esp_rmaker_schedule_enable(void);
 
     /* Start the ESP RainMaker Agent */
     esp_rmaker_start();

@@ -10,5 +10,8 @@
 #include <stdbool.h>
 #include <esp_err.h>
 
+#define DEFAULT_BRIGHTNESS  50
+#define DEFAULT_CCT 50
+
 void app_driver_init(void);
 esp_err_t app_driver_set_gpio(const char *name, bool state);
