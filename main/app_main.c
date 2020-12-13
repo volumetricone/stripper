@@ -13,7 +13,6 @@
 #include <esp_rmaker_schedule.h>
 
 #include <app_wifi.h>
-
 #include "app_priv.h"
 
 static const char *TAG = "app_main";
@@ -22,10 +21,35 @@ static const char *TAG = "app_main";
 static esp_err_t write_cb(const esp_rmaker_device_t *device, const esp_rmaker_param_t *param,
                           const esp_rmaker_param_val_t val, void *priv_data, esp_rmaker_write_ctx_t *ctx)
 {
-    if (app_driver_set_gpio(esp_rmaker_param_get_name(param), val.val.b) == ESP_OK)
+    if (ctx)
     {
-        esp_rmaker_param_update_and_report(param, val);
+        ESP_LOGI(TAG, "Received write request via : %s", esp_rmaker_device_cb_src_to_str(ctx->src));
     }
+    const char *device_name = esp_rmaker_device_get_name(device);
+    const char *param_name = esp_rmaker_param_get_name(param);
+
+    if (strcmp(param_name, ESP_RMAKER_DEF_POWER_NAME) == 0)
+    {
+        ESP_LOGI(TAG, "Received value %s for %s %s", val.val.b ? "True" : "False", device_name, param_name);
+        app_light_set_power(val.val.b);
+    }
+    else if (strcmp(param_name, ESP_RMAKER_DEF_CCT_NAME) == 0)
+    {
+        ESP_LOGI(TAG, "Received value %d for %s %s", val.val.i, device_name, param_name);
+        app_light_set_cct(val.val.i);
+    }
+    else if (strcmp(param_name, ESP_RMAKER_DEF_BRIGHTNESS_NAME) == 0)
+    {
+        ESP_LOGI(TAG, "Received value %d for %s %s", val.val.i, device_name, param_name);
+        app_light_set_brightness(val.val.i);
+    }
+    else
+    {
+        // Silently ignore unkown params
+        return ESP_OK;
+    }
+
+    esp_rmaker_param_update_and_report(param, val);
     return ESP_OK;
 }
 
