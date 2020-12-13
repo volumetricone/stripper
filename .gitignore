@@ -79,3 +79,8 @@ docs/docusaurus/website/node_modules
 
 # cli logs
 **/logs
+rfc2217_server_log.txt
+
+
+# IDE
+.idea
